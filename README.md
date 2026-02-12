@@ -383,7 +383,7 @@ python clima_app.py
 ---
 
 ### Si te falla ejecutalo sin ipapi
-```
+```python
 from flask import Flask, render_template, jsonify
 import requests
 
