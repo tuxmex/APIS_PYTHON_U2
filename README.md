@@ -4033,8 +4033,2087 @@ python divisas_app.py
 - Botón de intercambio rápido
 
 ---
+# 🎬 Ejercicios de APIs de Streaming
 
-*Los ejercicios 5.1 y 5.2 (TMDB y Spotify) están en el documento Word original.*
+## Ejercicio 5.1: Buscador de Películas con TMDB API
+
+### 🎯 Objetivo
+Crear una aplicación para buscar películas y series usando The Movie Database (TMDB) API.
+
+---
+
+## 📝 Paso 1: Registrarse en TMDB
+
+1. Ve a [https://www.themoviedb.org/](https://www.themoviedb.org/)
+2. Haz clic en "Únete a TMDB" (esquina superior derecha)
+3. Completa el registro y verifica tu email
+4. Ve a tu perfil → Configuración → API
+5. Solicita una API key (selecciona "Developer")
+6. Llena el formulario (puedes poner información de prueba)
+7. Copia tu API key
+
+**URL de documentación:** https://developers.themoviedb.org/3
+
+---
+
+## 💻 Paso 2: Crear el Archivo Python
+
+**Archivo: `peliculas_app.py`**
+
+```python
+from flask import Flask, render_template, request, jsonify
+import requests
+from datetime import datetime
+
+app = Flask(__name__)
+
+# TMDB API Key (obtener en https://www.themoviedb.org/settings/api)
+TMDB_API_KEY = 'TU_API_KEY_AQUI'
+TMDB_BASE_URL = 'https://api.themoviedb.org/3'
+TMDB_IMAGE_BASE = 'https://image.tmdb.org/t/p/w500'
+
+@app.route('/')
+def index():
+    return render_template('peliculas.html')
+
+@app.route('/api/peliculas/buscar')
+def buscar_peliculas():
+    """Buscar películas por título"""
+    query = request.args.get('q', '')
+    page = request.args.get('page', 1, type=int)
+    
+    if not query:
+        return jsonify({'error': 'Consulta requerida'}), 400
+    
+    try:
+        url = f'{TMDB_BASE_URL}/search/movie'
+        params = {
+            'api_key': TMDB_API_KEY,
+            'query': query,
+            'language': 'es-MX',
+            'page': page,
+            'include_adult': False
+        }
+        
+        response = requests.get(url, params=params, timeout=10)
+        
+        if response.status_code != 200:
+            return jsonify({'error': 'Error al buscar películas'}), 500
+        
+        data = response.json()
+        
+        peliculas = []
+        for movie in data.get('results', []):
+            peliculas.append({
+                'id': movie['id'],
+                'titulo': movie['title'],
+                'titulo_original': movie['original_title'],
+                'descripcion': movie['overview'],
+                'poster': f"{TMDB_IMAGE_BASE}{movie['poster_path']}" if movie.get('poster_path') else None,
+                'backdrop': f"https://image.tmdb.org/t/p/original{movie['backdrop_path']}" if movie.get('backdrop_path') else None,
+                'fecha_estreno': movie.get('release_date', ''),
+                'popularidad': movie.get('popularity', 0),
+                'calificacion': movie.get('vote_average', 0),
+                'votos': movie.get('vote_count', 0)
+            })
+        
+        return jsonify({
+            'peliculas': peliculas,
+            'pagina': data['page'],
+            'total_paginas': data['total_pages'],
+            'total_resultados': data['total_results']
+        })
+        
+    except Exception as e:
+        print(f"Error en buscar_peliculas: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/peliculas/<int:movie_id>')
+def detalle_pelicula(movie_id):
+    """Obtener detalles completos de una película"""
+    try:
+        # Información básica + créditos, videos y similares
+        url = f'{TMDB_BASE_URL}/movie/{movie_id}'
+        params = {
+            'api_key': TMDB_API_KEY,
+            'language': 'es-MX',
+            'append_to_response': 'credits,videos,similar,recommendations'
+        }
+        
+        response = requests.get(url, params=params, timeout=10)
+        
+        if response.status_code == 404:
+            return jsonify({'error': 'Película no encontrada'}), 404
+        
+        if response.status_code != 200:
+            return jsonify({'error': 'Error al obtener detalles'}), 500
+        
+        movie = response.json()
+        
+        # Procesar reparto
+        cast = [
+            {
+                'nombre': actor['name'],
+                'personaje': actor['character'],
+                'foto': f"{TMDB_IMAGE_BASE}{actor['profile_path']}" if actor.get('profile_path') else None,
+                'orden': actor.get('order', 999)
+            }
+            for actor in movie.get('credits', {}).get('cast', [])[:10]
+        ]
+        
+        # Procesar crew (director, guionista, etc.)
+        crew = movie.get('credits', {}).get('crew', [])
+        director = next((c['name'] for c in crew if c['job'] == 'Director'), None)
+        guionistas = [c['name'] for c in crew if c['job'] in ['Writer', 'Screenplay']][:3]
+        
+        # Procesar videos (trailers)
+        videos = [
+            {
+                'nombre': video['name'],
+                'tipo': video['type'],
+                'sitio': video['site'],
+                'key': video['key'],
+                'url': f"https://www.youtube.com/watch?v={video['key']}" if video['site'] == 'YouTube' else None
+            }
+            for video in movie.get('videos', {}).get('results', [])
+            if video['site'] == 'YouTube' and video['type'] in ['Trailer', 'Teaser']
+        ]
+        
+        # Películas similares
+        similares = [
+            {
+                'id': sim['id'],
+                'titulo': sim['title'],
+                'poster': f"{TMDB_IMAGE_BASE}{sim['poster_path']}" if sim.get('poster_path') else None,
+                'calificacion': sim.get('vote_average', 0)
+            }
+            for sim in movie.get('similar', {}).get('results', [])[:6]
+        ]
+        
+        # Recomendaciones
+        recomendaciones = [
+            {
+                'id': rec['id'],
+                'titulo': rec['title'],
+                'poster': f"{TMDB_IMAGE_BASE}{rec['poster_path']}" if rec.get('poster_path') else None,
+                'calificacion': rec.get('vote_average', 0)
+            }
+            for rec in movie.get('recommendations', {}).get('results', [])[:6]
+        ]
+        
+        detalle = {
+            'id': movie['id'],
+            'titulo': movie['title'],
+            'titulo_original': movie['original_title'],
+            'descripcion': movie['overview'],
+            'tagline': movie.get('tagline', ''),
+            'poster': f"{TMDB_IMAGE_BASE}{movie['poster_path']}" if movie.get('poster_path') else None,
+            'backdrop': f"https://image.tmdb.org/t/p/original{movie['backdrop_path']}" if movie.get('backdrop_path') else None,
+            'fecha_estreno': movie.get('release_date', ''),
+            'duracion': movie.get('runtime', 0),
+            'presupuesto': movie.get('budget', 0),
+            'ingresos': movie.get('revenue', 0),
+            'calificacion': movie.get('vote_average', 0),
+            'votos': movie.get('vote_count', 0),
+            'popularidad': movie.get('popularity', 0),
+            'generos': [g['name'] for g in movie.get('genres', [])],
+            'productoras': [p['name'] for p in movie.get('production_companies', [])],
+            'paises': [p['name'] for p in movie.get('production_countries', [])],
+            'idiomas': [l['english_name'] for l in movie.get('spoken_languages', [])],
+            'director': director,
+            'guionistas': guionistas,
+            'reparto': cast,
+            'trailers': videos,
+            'similares': similares,
+            'recomendaciones': recomendaciones,
+            'homepage': movie.get('homepage', ''),
+            'imdb_id': movie.get('imdb_id', '')
+        }
+        
+        return jsonify(detalle)
+        
+    except Exception as e:
+        print(f"Error en detalle_pelicula: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/peliculas/populares')
+def peliculas_populares():
+    """Obtener películas populares"""
+    page = request.args.get('page', 1, type=int)
+    
+    try:
+        url = f'{TMDB_BASE_URL}/movie/popular'
+        params = {
+            'api_key': TMDB_API_KEY,
+            'language': 'es-MX',
+            'page': page
+        }
+        
+        response = requests.get(url, params=params, timeout=10)
+        data = response.json()
+        
+        peliculas = [
+            {
+                'id': movie['id'],
+                'titulo': movie['title'],
+                'poster': f"{TMDB_IMAGE_BASE}{movie['poster_path']}" if movie.get('poster_path') else None,
+                'calificacion': movie.get('vote_average', 0),
+                'fecha_estreno': movie.get('release_date', '')
+            }
+            for movie in data.get('results', [])
+        ]
+        
+        return jsonify({
+            'peliculas': peliculas,
+            'pagina': data['page'],
+            'total_paginas': data['total_pages']
+        })
+        
+    except Exception as e:
+        print(f"Error en peliculas_populares: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/peliculas/cartelera')
+def peliculas_cartelera():
+    """Obtener películas en cartelera"""
+    try:
+        url = f'{TMDB_BASE_URL}/movie/now_playing'
+        params = {
+            'api_key': TMDB_API_KEY,
+            'language': 'es-MX',
+            'region': 'MX'
+        }
+        
+        response = requests.get(url, params=params, timeout=10)
+        data = response.json()
+        
+        peliculas = [
+            {
+                'id': movie['id'],
+                'titulo': movie['title'],
+                'poster': f"{TMDB_IMAGE_BASE}{movie['poster_path']}" if movie.get('poster_path') else None,
+                'calificacion': movie.get('vote_average', 0)
+            }
+            for movie in data.get('results', [])[:10]
+        ]
+        
+        return jsonify(peliculas)
+        
+    except Exception as e:
+        print(f"Error en peliculas_cartelera: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/series/buscar')
+def buscar_series():
+    """Buscar series de TV"""
+    query = request.args.get('q', '')
+    
+    if not query:
+        return jsonify({'error': 'Consulta requerida'}), 400
+    
+    try:
+        url = f'{TMDB_BASE_URL}/search/tv'
+        params = {
+            'api_key': TMDB_API_KEY,
+            'query': query,
+            'language': 'es-MX'
+        }
+        
+        response = requests.get(url, params=params, timeout=10)
+        data = response.json()
+        
+        series = [
+            {
+                'id': show['id'],
+                'nombre': show['name'],
+                'descripcion': show.get('overview', ''),
+                'poster': f"{TMDB_IMAGE_BASE}{show['poster_path']}" if show.get('poster_path') else None,
+                'primera_fecha': show.get('first_air_date', ''),
+                'calificacion': show.get('vote_average', 0)
+            }
+            for show in data.get('results', [])
+        ]
+        
+        return jsonify(series)
+        
+    except Exception as e:
+        print(f"Error en buscar_series: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/generos/peliculas')
+def generos_peliculas():
+    """Obtener lista de géneros de películas"""
+    try:
+        url = f'{TMDB_BASE_URL}/genre/movie/list'
+        params = {
+            'api_key': TMDB_API_KEY,
+            'language': 'es-MX'
+        }
+        
+        response = requests.get(url, params=params, timeout=10)
+        data = response.json()
+        
+        return jsonify(data.get('genres', []))
+        
+    except Exception as e:
+        print(f"Error en generos_peliculas: {e}")
+        return jsonify({'error': str(e)}), 500
+
+if __name__ == '__main__':
+    print("=" * 60)
+    print("🎬 Buscador de Películas - TMDB API")
+    print("=" * 60)
+    
+    if TMDB_API_KEY == 'TU_API_KEY_AQUI':
+        print("⚠️  ADVERTENCIA: API Key no configurada")
+        print("   Obtén tu key en: https://www.themoviedb.org/settings/api")
+    else:
+        print(f"✅ API Key configurada: {TMDB_API_KEY[:10]}...")
+    
+    print("🌐 Servidor corriendo en: http://127.0.0.1:5000")
+    print("=" * 60)
+    
+    app.run(debug=True)
+```
+
+---
+
+## 🎨 Paso 3: Crear la Interfaz HTML
+
+**Archivo: `templates/peliculas.html`**
+
+```html
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Buscador de Películas - TMDB</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: Arial, sans-serif;
+            background: #141414;
+            color: white;
+        }
+        
+        header {
+            background: linear-gradient(to bottom, #000000, #141414);
+            padding: 20px;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.5);
+        }
+        
+        .header-content {
+            max-width: 1400px;
+            margin: 0 auto;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 20px;
+            flex-wrap: wrap;
+        }
+        
+        h1 {
+            color: #E50914;
+            font-size: 2em;
+        }
+        
+        .search-box {
+            flex: 1;
+            min-width: 300px;
+            max-width: 600px;
+        }
+        
+        .search-form {
+            display: flex;
+            gap: 10px;
+        }
+        
+        input[type="text"] {
+            flex: 1;
+            padding: 12px 20px;
+            border: 2px solid #333;
+            border-radius: 5px;
+            background: #222;
+            color: white;
+            font-size: 16px;
+        }
+        
+        input[type="text"]:focus {
+            outline: none;
+            border-color: #E50914;
+        }
+        
+        button {
+            padding: 12px 25px;
+            background: #E50914;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: background 0.3s;
+        }
+        
+        button:hover {
+            background: #f40612;
+        }
+        
+        .tabs {
+            display: flex;
+            gap: 10px;
+            margin: 20px 0;
+            max-width: 1400px;
+            margin: 20px auto;
+            padding: 0 20px;
+        }
+        
+        .tab {
+            padding: 10px 20px;
+            background: #222;
+            border: none;
+            color: white;
+            cursor: pointer;
+            border-radius: 5px;
+            transition: background 0.3s;
+        }
+        
+        .tab.active {
+            background: #E50914;
+        }
+        
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        
+        .peliculas-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+            gap: 20px;
+            margin-top: 20px;
+        }
+        
+        .pelicula-card {
+            background: #222;
+            border-radius: 10px;
+            overflow: hidden;
+            cursor: pointer;
+            transition: transform 0.3s, box-shadow 0.3s;
+        }
+        
+        .pelicula-card:hover {
+            transform: scale(1.05);
+            box-shadow: 0 8px 30px rgba(229, 9, 20, 0.4);
+        }
+        
+        .pelicula-poster {
+            width: 100%;
+            height: 300px;
+            object-fit: cover;
+            background: #333;
+        }
+        
+        .pelicula-info {
+            padding: 15px;
+        }
+        
+        .pelicula-titulo {
+            font-weight: bold;
+            margin-bottom: 8px;
+            font-size: 16px;
+            line-height: 1.3;
+            height: 40px;
+            overflow: hidden;
+        }
+        
+        .pelicula-meta {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 14px;
+            color: #999;
+        }
+        
+        .rating {
+            color: #FFC107;
+            font-weight: bold;
+        }
+        
+        .loading {
+            text-align: center;
+            padding: 60px 20px;
+            font-size: 18px;
+            color: #666;
+        }
+        
+        .error {
+            background: #E50914;
+            padding: 20px;
+            border-radius: 10px;
+            text-align: center;
+            margin: 20px;
+        }
+        
+        /* Modal */
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.9);
+            z-index: 1000;
+            overflow-y: auto;
+        }
+        
+        .modal.show {
+            display: block;
+        }
+        
+        .modal-content {
+            max-width: 1200px;
+            margin: 50px auto;
+            background: #141414;
+            border-radius: 10px;
+            overflow: hidden;
+            position: relative;
+        }
+        
+        .modal-close {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            background: rgba(0, 0, 0, 0.7);
+            color: white;
+            border: none;
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            font-size: 24px;
+            cursor: pointer;
+            z-index: 10;
+        }
+        
+        .modal-backdrop {
+            width: 100%;
+            height: 500px;
+            object-fit: cover;
+            opacity: 0.5;
+        }
+        
+        .modal-details {
+            padding: 40px;
+            margin-top: -100px;
+            position: relative;
+        }
+        
+        .modal-header {
+            display: flex;
+            gap: 30px;
+            margin-bottom: 30px;
+        }
+        
+        .modal-poster {
+            width: 300px;
+            border-radius: 10px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.5);
+        }
+        
+        .modal-info h2 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+        }
+        
+        .modal-tagline {
+            color: #999;
+            font-style: italic;
+            margin-bottom: 20px;
+        }
+        
+        .modal-meta {
+            display: flex;
+            gap: 20px;
+            margin-bottom: 20px;
+            font-size: 14px;
+        }
+        
+        .meta-item {
+            background: #222;
+            padding: 8px 15px;
+            border-radius: 5px;
+        }
+        
+        .section {
+            margin-top: 30px;
+        }
+        
+        .section h3 {
+            margin-bottom: 15px;
+            color: #E50914;
+        }
+        
+        .cast-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+            gap: 15px;
+        }
+        
+        .cast-member {
+            text-align: center;
+        }
+        
+        .cast-photo {
+            width: 100%;
+            height: 150px;
+            object-fit: cover;
+            border-radius: 10px;
+            background: #333;
+        }
+        
+        .cast-name {
+            font-size: 14px;
+            margin-top: 8px;
+            font-weight: bold;
+        }
+        
+        .cast-character {
+            font-size: 12px;
+            color: #999;
+        }
+        
+        .trailer-list {
+            display: flex;
+            gap: 15px;
+            overflow-x: auto;
+            padding-bottom: 10px;
+        }
+        
+        .trailer-item {
+            min-width: 300px;
+            background: #222;
+            padding: 15px;
+            border-radius: 10px;
+            cursor: pointer;
+            transition: background 0.3s;
+        }
+        
+        .trailer-item:hover {
+            background: #333;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <div class="header-content">
+            <h1>🎬 CineDB</h1>
+            <div class="search-box">
+                <div class="search-form">
+                    <input 
+                        type="text" 
+                        id="busqueda" 
+                        placeholder="Buscar películas..."
+                        onkeypress="if(event.key === 'Enter') buscarPeliculas()"
+                    >
+                    <button onclick="buscarPeliculas()">Buscar</button>
+                </div>
+            </div>
+        </div>
+    </header>
+    
+    <div class="tabs">
+        <button class="tab active" onclick="cambiarTab('populares')">Populares</button>
+        <button class="tab" onclick="cambiarTab('cartelera')">En Cartelera</button>
+        <button class="tab" onclick="cambiarTab('busqueda')">Búsqueda</button>
+    </div>
+    
+    <div class="container">
+        <div id="resultados"></div>
+    </div>
+    
+    <!-- Modal de detalles -->
+    <div id="modal" class="modal">
+        <div class="modal-content">
+            <button class="modal-close" onclick="cerrarModal()">×</button>
+            <div id="modalBody"></div>
+        </div>
+    </div>
+
+    <script>
+        let tabActual = 'populares';
+        
+        window.onload = () => {
+            cargarPopulares();
+        };
+        
+        function cambiarTab(tab) {
+            tabActual = tab;
+            
+            // Actualizar tabs activos
+            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+            event.target.classList.add('active');
+            
+            if (tab === 'populares') {
+                cargarPopulares();
+            } else if (tab === 'cartelera') {
+                cargarCartelera();
+            } else {
+                document.getElementById('resultados').innerHTML = 
+                    '<div class="loading">Usa el buscador para encontrar películas</div>';
+            }
+        }
+        
+        async function cargarPopulares() {
+            const resultados = document.getElementById('resultados');
+            resultados.innerHTML = '<div class="loading">🎬 Cargando películas populares...</div>';
+            
+            try {
+                const response = await fetch('/api/peliculas/populares');
+                const data = await response.json();
+                
+                mostrarPeliculas(data.peliculas);
+                
+            } catch (error) {
+                resultados.innerHTML = '<div class="error">❌ Error al cargar películas</div>';
+            }
+        }
+        
+        async function cargarCartelera() {
+            const resultados = document.getElementById('resultados');
+            resultados.innerHTML = '<div class="loading">🎬 Cargando películas en cartelera...</div>';
+            
+            try {
+                const response = await fetch('/api/peliculas/cartelera');
+                const peliculas = await response.json();
+                
+                mostrarPeliculas(peliculas);
+                
+            } catch (error) {
+                resultados.innerHTML = '<div class="error">❌ Error al cargar cartelera</div>';
+            }
+        }
+        
+        async function buscarPeliculas() {
+            const resultados = document.getElementById('resultados');
+            const busqueda = document.getElementById('busqueda').value.trim();
+            
+            if (!busqueda) {
+                alert('Por favor ingresa un término de búsqueda');
+                return;
+            }
+            
+            resultados.innerHTML = '<div class="loading">🔍 Buscando películas...</div>';
+            
+            try {
+                const response = await fetch(`/api/peliculas/buscar?q=${encodeURIComponent(busqueda)}`);
+                const data = await response.json();
+                
+                if (data.error) {
+                    resultados.innerHTML = `<div class="error">❌ ${data.error}</div>`;
+                    return;
+                }
+                
+                if (data.peliculas.length === 0) {
+                    resultados.innerHTML = '<div class="loading">No se encontraron películas</div>';
+                    return;
+                }
+                
+                mostrarPeliculas(data.peliculas);
+                
+            } catch (error) {
+                resultados.innerHTML = '<div class="error">❌ Error al buscar películas</div>';
+            }
+        }
+        
+        function mostrarPeliculas(peliculas) {
+            const resultados = document.getElementById('resultados');
+            
+            resultados.innerHTML = `
+                <div class="peliculas-grid">
+                    ${peliculas.map(p => `
+                        <div class="pelicula-card" onclick="verDetalle(${p.id})">
+                            <img 
+                                src="${p.poster || '/static/img/no-poster.png'}" 
+                                alt="${p.titulo}"
+                                class="pelicula-poster"
+                                onerror="this.src='/static/img/no-poster.png'"
+                            >
+                            <div class="pelicula-info">
+                                <div class="pelicula-titulo">${p.titulo}</div>
+                                <div class="pelicula-meta">
+                                    <span class="rating">⭐ ${p.calificacion.toFixed(1)}</span>
+                                    <span>${p.fecha_estreno ? p.fecha_estreno.split('-')[0] : 'N/A'}</span>
+                                </div>
+                            </div>
+                        </div>
+                    `).join('')}
+                </div>
+            `;
+        }
+        
+        async function verDetalle(peliculaId) {
+            const modal = document.getElementById('modal');
+            const modalBody = document.getElementById('modalBody');
+            
+            modalBody.innerHTML = '<div class="loading" style="padding: 100px;">Cargando detalles...</div>';
+            modal.classList.add('show');
+            
+            try {
+                const response = await fetch(`/api/peliculas/${peliculaId}`);
+                const pelicula = await response.json();
+                
+                if (pelicula.error) {
+                    modalBody.innerHTML = `<div class="error">${pelicula.error}</div>`;
+                    return;
+                }
+                
+                modalBody.innerHTML = `
+                    ${pelicula.backdrop ? `<img src="${pelicula.backdrop}" class="modal-backdrop">` : ''}
+                    
+                    <div class="modal-details">
+                        <div class="modal-header">
+                            ${pelicula.poster ? `<img src="${pelicula.poster}" class="modal-poster">` : ''}
+                            
+                            <div class="modal-info">
+                                <h2>${pelicula.titulo}</h2>
+                                ${pelicula.tagline ? `<p class="modal-tagline">"${pelicula.tagline}"</p>` : ''}
+                                
+                                <div class="modal-meta">
+                                    <div class="meta-item">⭐ ${pelicula.calificacion.toFixed(1)}/10</div>
+                                    ${pelicula.duracion ? `<div class="meta-item">🕐 ${pelicula.duracion} min</div>` : ''}
+                                    ${pelicula.fecha_estreno ? `<div class="meta-item">📅 ${pelicula.fecha_estreno}</div>` : ''}
+                                </div>
+                                
+                                ${pelicula.generos.length > 0 ? `
+                                    <div style="margin-top: 15px;">
+                                        ${pelicula.generos.map(g => 
+                                            `<span class="meta-item" style="display: inline-block; margin: 5px;">${g}</span>`
+                                        ).join('')}
+                                    </div>
+                                ` : ''}
+                                
+                                <p style="margin-top: 20px; line-height: 1.6;">${pelicula.descripcion}</p>
+                                
+                                ${pelicula.director ? `<p style="margin-top: 15px;"><strong>Director:</strong> ${pelicula.director}</p>` : ''}
+                            </div>
+                        </div>
+                        
+                        ${pelicula.trailers.length > 0 ? `
+                            <div class="section">
+                                <h3>Tráilers y Videos</h3>
+                                <div class="trailer-list">
+                                    ${pelicula.trailers.map(t => `
+                                        <div class="trailer-item" onclick="window.open('${t.url}', '_blank')">
+                                            <div style="font-weight: bold; margin-bottom: 5px;">▶️ ${t.nombre}</div>
+                                            <div style="color: #999; font-size: 14px;">${t.tipo}</div>
+                                        </div>
+                                    `).join('')}
+                                </div>
+                            </div>
+                        ` : ''}
+                        
+                        ${pelicula.reparto.length > 0 ? `
+                            <div class="section">
+                                <h3>Reparto Principal</h3>
+                                <div class="cast-grid">
+                                    ${pelicula.reparto.map(actor => `
+                                        <div class="cast-member">
+                                            <img 
+                                                src="${actor.foto || '/static/img/no-photo.png'}" 
+                                                class="cast-photo"
+                                                onerror="this.src='/static/img/no-photo.png'"
+                                            >
+                                            <div class="cast-name">${actor.nombre}</div>
+                                            <div class="cast-character">${actor.personaje}</div>
+                                        </div>
+                                    `).join('')}
+                                </div>
+                            </div>
+                        ` : ''}
+                        
+                        ${pelicula.similares.length > 0 ? `
+                            <div class="section">
+                                <h3>Películas Similares</h3>
+                                <div class="peliculas-grid">
+                                    ${pelicula.similares.map(sim => `
+                                        <div class="pelicula-card" onclick="verDetalle(${sim.id})">
+                                            <img src="${sim.poster}" class="pelicula-poster">
+                                            <div class="pelicula-info">
+                                                <div class="pelicula-titulo">${sim.titulo}</div>
+                                                <div class="pelicula-meta">
+                                                    <span class="rating">⭐ ${sim.calificacion.toFixed(1)}</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    `).join('')}
+                                </div>
+                            </div>
+                        ` : ''}
+                    </div>
+                `;
+                
+            } catch (error) {
+                modalBody.innerHTML = '<div class="error">❌ Error al cargar detalles</div>';
+            }
+        }
+        
+        function cerrarModal() {
+            document.getElementById('modal').classList.remove('show');
+        }
+        
+        // Cerrar modal al hacer clic fuera
+        document.getElementById('modal').onclick = function(e) {
+            if (e.target === this) {
+                cerrarModal();
+            }
+        };
+    </script>
+</body>
+</html>
+```
+
+---
+
+## ▶️ Paso 4: Ejecutar la Aplicación
+
+```bash
+# 1. Activar entorno virtual
+source venv/bin/activate  # Linux/Mac
+venv\Scripts\activate     # Windows
+
+# 2. Instalar dependencias (si no están instaladas)
+pip install flask requests
+
+# 3. Ejecutar
+python peliculas_app.py
+```
+
+---
+
+## 🎯 Funcionalidades Implementadas
+
+✅ Búsqueda de películas por título  
+✅ Películas populares del momento  
+✅ Películas en cartelera  
+✅ Detalles completos de cada película  
+✅ Información del reparto  
+✅ Trailers de YouTube  
+✅ Películas similares y recomendaciones  
+✅ Modal con información detallada  
+✅ Interfaz tipo Netflix
+
+---
+
+## 🧪 Endpoints de la API
+
+| Endpoint | Método | Descripción |
+|----------|--------|-------------|
+| `/api/peliculas/buscar?q=...` | GET | Buscar películas |
+| `/api/peliculas/<id>` | GET | Detalles de película |
+| `/api/peliculas/populares` | GET | Películas populares |
+| `/api/peliculas/cartelera` | GET | Películas en cartelera |
+| `/api/series/buscar?q=...` | GET | Buscar series |
+| `/api/generos/peliculas` | GET | Lista de géneros |
+
+---
+
+## 📸 Capturas Esperadas
+
+La aplicación mostrará:
+- Grid de pósters de películas
+- Modal con backdrop, póster, descripción
+- Sección de reparto con fotos
+- Links a trailers de YouTube
+- Películas similares
+
+---
+
+# 🎵 Ejercicio 5.2: Buscador de Música con Spotify Web API
+
+## 🎯 Objetivo
+Crear una aplicación para buscar música, artistas, álbumes y playlists usando Spotify Web API.
+
+---
+
+## 📝 Paso 1: Registrarse en Spotify for Developers
+
+1. Ve a [Spotify for Developers](https://developer.spotify.com/)
+2. Haz clic en "Dashboard" (esquina superior derecha)
+3. Inicia sesión con tu cuenta de Spotify (o crea una)
+4. Haz clic en "Create app"
+5. Llena el formulario:
+   - **App name**: Mi Buscador de Música
+   - **App description**: Aplicación para buscar música
+   - **Redirect URIs**: http://localhost:5000/callback
+   - **API/SDK**: Web API
+6. Acepta los términos y haz clic en "Create"
+7. En la página de tu app, copia:
+   - **Client ID**
+   - **Client Secret** (haz clic en "Show client secret")
+
+**Documentación:** https://developer.spotify.com/documentation/web-api
+
+---
+
+## 💻 Paso 2: Crear el Archivo Python
+
+**Archivo: `spotify_app.py`**
+
+```python
+from flask import Flask, render_template, request, jsonify, session, redirect, url_for
+import requests
+import base64
+from datetime import datetime, timedelta
+
+app = Flask(__name__)
+app.secret_key = 'tu_secret_key_super_secreta_aqui'  # Cambiar por una clave secreta
+
+# Spotify API Credentials
+CLIENT_ID = 'TU_CLIENT_ID_AQUI'
+CLIENT_SECRET = 'TU_CLIENT_SECRET_AQUI'
+
+# URLs de Spotify
+SPOTIFY_AUTH_URL = 'https://accounts.spotify.com/authorize'
+SPOTIFY_TOKEN_URL = 'https://accounts.spotify.com/api/token'
+SPOTIFY_API_URL = 'https://api.spotify.com/v1'
+
+def get_access_token():
+    """
+    Obtener token de acceso de Spotify usando Client Credentials Flow.
+    Este método es para búsquedas públicas sin necesidad de login de usuario.
+    """
+    # Verificar si tenemos un token guardado y aún válido
+    if 'access_token' in session and 'token_expiry' in session:
+        if datetime.now() < datetime.fromisoformat(session['token_expiry']):
+            return session['access_token']
+    
+    # Crear credenciales en base64
+    auth_string = f"{CLIENT_ID}:{CLIENT_SECRET}"
+    auth_bytes = auth_string.encode('utf-8')
+    auth_base64 = base64.b64encode(auth_bytes).decode('utf-8')
+    
+    # Solicitar token
+    headers = {
+        'Authorization': f'Basic {auth_base64}',
+        'Content-Type': 'application/x-www-form-urlencoded'
+    }
+    data = {'grant_type': 'client_credentials'}
+    
+    try:
+        response = requests.post(SPOTIFY_TOKEN_URL, headers=headers, data=data, timeout=10)
+        
+        if response.status_code != 200:
+            print(f"Error al obtener token: {response.status_code}")
+            print(response.json())
+            return None
+        
+        token_data = response.json()
+        access_token = token_data['access_token']
+        expires_in = token_data['expires_in']
+        
+        # Guardar en sesión
+        session['access_token'] = access_token
+        session['token_expiry'] = (datetime.now() + timedelta(seconds=expires_in - 60)).isoformat()
+        
+        return access_token
+        
+    except Exception as e:
+        print(f"Error al obtener token: {e}")
+        return None
+
+@app.route('/')
+def index():
+    return render_template('spotify.html')
+
+@app.route('/api/spotify/buscar')
+def buscar_spotify():
+    """Buscar canciones, artistas, álbumes o playlists"""
+    query = request.args.get('q', '')
+    tipo = request.args.get('tipo', 'track')  # track, artist, album, playlist
+    limite = request.args.get('limite', 20, type=int)
+    
+    if not query:
+        return jsonify({'error': 'Consulta requerida'}), 400
+    
+    token = get_access_token()
+    if not token:
+        return jsonify({'error': 'Error al autenticar con Spotify'}), 500
+    
+    try:
+        url = f'{SPOTIFY_API_URL}/search'
+        headers = {'Authorization': f'Bearer {token}'}
+        params = {
+            'q': query,
+            'type': tipo,
+            'limit': limite,
+            'market': 'MX'
+        }
+        
+        response = requests.get(url, headers=headers, params=params, timeout=10)
+        
+        if response.status_code != 200:
+            return jsonify({'error': f'Error de Spotify API: {response.status_code}'}), 500
+        
+        data = response.json()
+        resultados = []
+        
+        # Procesar según el tipo
+        if tipo == 'track':
+            for track in data.get('tracks', {}).get('items', []):
+                resultados.append({
+                    'id': track['id'],
+                    'nombre': track['name'],
+                    'artistas': [a['name'] for a in track['artists']],
+                    'artista_principal': track['artists'][0]['name'] if track['artists'] else '',
+                    'album': track['album']['name'],
+                    'imagen': track['album']['images'][0]['url'] if track['album']['images'] else None,
+                    'duracion_ms': track['duration_ms'],
+                    'duracion': f"{track['duration_ms'] // 60000}:{(track['duration_ms'] % 60000) // 1000:02d}",
+                    'preview_url': track['preview_url'],
+                    'spotify_url': track['external_urls']['spotify'],
+                    'popularidad': track['popularity'],
+                    'explicito': track['explicit']
+                })
+        
+        elif tipo == 'artist':
+            for artist in data.get('artists', {}).get('items', []):
+                resultados.append({
+                    'id': artist['id'],
+                    'nombre': artist['name'],
+                    'generos': artist['genres'],
+                    'popularidad': artist['popularity'],
+                    'imagen': artist['images'][0]['url'] if artist['images'] else None,
+                    'seguidores': artist['followers']['total'],
+                    'spotify_url': artist['external_urls']['spotify']
+                })
+        
+        elif tipo == 'album':
+            for album in data.get('albums', {}).get('items', []):
+                resultados.append({
+                    'id': album['id'],
+                    'nombre': album['name'],
+                    'artistas': [a['name'] for a in album['artists']],
+                    'fecha_lanzamiento': album['release_date'],
+                    'total_tracks': album['total_tracks'],
+                    'imagen': album['images'][0]['url'] if album['images'] else None,
+                    'spotify_url': album['external_urls']['spotify'],
+                    'tipo': album['album_type']
+                })
+        
+        elif tipo == 'playlist':
+            for playlist in data.get('playlists', {}).get('items', []):
+                resultados.append({
+                    'id': playlist['id'],
+                    'nombre': playlist['name'],
+                    'descripcion': playlist['description'],
+                    'owner': playlist['owner']['display_name'],
+                    'total_tracks': playlist['tracks']['total'],
+                    'imagen': playlist['images'][0]['url'] if playlist['images'] else None,
+                    'spotify_url': playlist['external_urls']['spotify'],
+                    'publica': playlist['public']
+                })
+        
+        return jsonify(resultados)
+        
+    except Exception as e:
+        print(f"Error en buscar_spotify: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/spotify/artista/<artist_id>')
+def info_artista(artist_id):
+    """Obtener información completa de un artista"""
+    token = get_access_token()
+    if not token:
+        return jsonify({'error': 'Error al autenticar'}), 500
+    
+    try:
+        headers = {'Authorization': f'Bearer {token}'}
+        
+        # Información del artista
+        artist_response = requests.get(
+            f'{SPOTIFY_API_URL}/artists/{artist_id}',
+            headers=headers,
+            timeout=10
+        )
+        artist = artist_response.json()
+        
+        # Top tracks del artista
+        top_response = requests.get(
+            f'{SPOTIFY_API_URL}/artists/{artist_id}/top-tracks',
+            headers=headers,
+            params={'market': 'MX'},
+            timeout=10
+        )
+        top_tracks = top_response.json().get('tracks', [])
+        
+        # Álbumes del artista
+        albums_response = requests.get(
+            f'{SPOTIFY_API_URL}/artists/{artist_id}/albums',
+            headers=headers,
+            params={'limit': 10, 'market': 'MX'},
+            timeout=10
+        )
+        albums = albums_response.json().get('items', [])
+        
+        # Artistas relacionados
+        related_response = requests.get(
+            f'{SPOTIFY_API_URL}/artists/{artist_id}/related-artists',
+            headers=headers,
+            timeout=10
+        )
+        related = related_response.json().get('artists', [])
+        
+        resultado = {
+            'id': artist['id'],
+            'nombre': artist['name'],
+            'generos': artist['genres'],
+            'popularidad': artist['popularity'],
+            'seguidores': artist['followers']['total'],
+            'imagen': artist['images'][0]['url'] if artist['images'] else None,
+            'spotify_url': artist['external_urls']['spotify'],
+            'top_canciones': [
+                {
+                    'id': track['id'],
+                    'nombre': track['name'],
+                    'album': track['album']['name'],
+                    'preview': track['preview_url'],
+                    'imagen': track['album']['images'][0]['url'] if track['album']['images'] else None,
+                    'duracion': f"{track['duration_ms'] // 60000}:{(track['duration_ms'] % 60000) // 1000:02d}",
+                    'spotify_url': track['external_urls']['spotify']
+                }
+                for track in top_tracks[:10]
+            ],
+            'albums': [
+                {
+                    'id': album['id'],
+                    'nombre': album['name'],
+                    'fecha': album['release_date'],
+                    'imagen': album['images'][0]['url'] if album['images'] else None,
+                    'total_tracks': album['total_tracks'],
+                    'tipo': album['album_type']
+                }
+                for album in albums
+            ],
+            'artistas_relacionados': [
+                {
+                    'id': rel['id'],
+                    'nombre': rel['name'],
+                    'imagen': rel['images'][0]['url'] if rel['images'] else None,
+                    'popularidad': rel['popularity']
+                }
+                for rel in related[:6]
+            ]
+        }
+        
+        return jsonify(resultado)
+        
+    except Exception as e:
+        print(f"Error en info_artista: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/spotify/album/<album_id>')
+def info_album(album_id):
+    """Obtener información de un álbum"""
+    token = get_access_token()
+    if not token:
+        return jsonify({'error': 'Error al autenticar'}), 500
+    
+    try:
+        headers = {'Authorization': f'Bearer {token}'}
+        
+        response = requests.get(
+            f'{SPOTIFY_API_URL}/albums/{album_id}',
+            headers=headers,
+            params={'market': 'MX'},
+            timeout=10
+        )
+        album = response.json()
+        
+        resultado = {
+            'id': album['id'],
+            'nombre': album['name'],
+            'artistas': [a['name'] for a in album['artists']],
+            'fecha_lanzamiento': album['release_date'],
+            'total_tracks': album['total_tracks'],
+            'imagen': album['images'][0]['url'] if album['images'] else None,
+            'generos': album['genres'],
+            'sello': album['label'],
+            'popularidad': album['popularity'],
+            'spotify_url': album['external_urls']['spotify'],
+            'tracks': [
+                {
+                    'numero': track['track_number'],
+                    'nombre': track['name'],
+                    'duracion': f"{track['duration_ms'] // 60000}:{(track['duration_ms'] % 60000) // 1000:02d}",
+                    'preview': track['preview_url'],
+                    'spotify_url': track['external_urls']['spotify']
+                }
+                for track in album['tracks']['items']
+            ]
+        }
+        
+        return jsonify(resultado)
+        
+    except Exception as e:
+        print(f"Error en info_album: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/spotify/recomendaciones')
+def obtener_recomendaciones():
+    """Obtener recomendaciones basadas en géneros"""
+    generos = request.args.get('generos', 'pop,rock')
+    limite = request.args.get('limite', 20, type=int)
+    
+    token = get_access_token()
+    if not token:
+        return jsonify({'error': 'Error al autenticar'}), 500
+    
+    try:
+        headers = {'Authorization': f'Bearer {token}'}
+        
+        response = requests.get(
+            f'{SPOTIFY_API_URL}/recommendations',
+            headers=headers,
+            params={
+                'seed_genres': generos,
+                'limit': limite,
+                'market': 'MX'
+            },
+            timeout=10
+        )
+        data = response.json()
+        
+        recomendaciones = [
+            {
+                'id': track['id'],
+                'nombre': track['name'],
+                'artistas': [a['name'] for a in track['artists']],
+                'album': track['album']['name'],
+                'imagen': track['album']['images'][0]['url'] if track['album']['images'] else None,
+                'preview_url': track['preview_url'],
+                'spotify_url': track['external_urls']['spotify']
+            }
+            for track in data.get('tracks', [])
+        ]
+        
+        return jsonify(recomendaciones)
+        
+    except Exception as e:
+        print(f"Error en recomendaciones: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/spotify/generos')
+def obtener_generos():
+    """Obtener lista de géneros disponibles"""
+    token = get_access_token()
+    if not token:
+        return jsonify({'error': 'Error al autenticar'}), 500
+    
+    try:
+        headers = {'Authorization': f'Bearer {token}'}
+        
+        response = requests.get(
+            f'{SPOTIFY_API_URL}/recommendations/available-genre-seeds',
+            headers=headers,
+            timeout=10
+        )
+        data = response.json()
+        
+        return jsonify(data.get('genres', []))
+        
+    except Exception as e:
+        print(f"Error en obtener_generos: {e}")
+        return jsonify({'error': str(e)}), 500
+
+if __name__ == '__main__':
+    print("=" * 60)
+    print("🎵 Buscador de Música - Spotify Web API")
+    print("=" * 60)
+    
+    if CLIENT_ID == 'TU_CLIENT_ID_AQUI':
+        print("⚠️  ADVERTENCIA: Credenciales no configuradas")
+        print("   Obtén tus credenciales en:")
+        print("   https://developer.spotify.com/dashboard")
+    else:
+        print(f"✅ Client ID configurado: {CLIENT_ID[:20]}...")
+    
+    print("🌐 Servidor corriendo en: http://127.0.0.1:5000")
+    print("=" * 60)
+    
+    app.run(debug=True)
+```
+
+---
+
+## 🎨 Paso 3: Crear la Interfaz HTML
+
+**Archivo: `templates/spotify.html`**
+
+```html
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Buscador de Música - Spotify</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
+            background: linear-gradient(135deg, #1DB954 0%, #191414 100%);
+            min-height: 100vh;
+            color: white;
+        }
+        
+        header {
+            background: rgba(0, 0, 0, 0.8);
+            padding: 20px;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            backdrop-filter: blur(10px);
+        }
+        
+        .header-content {
+            max-width: 1400px;
+            margin: 0 auto;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 20px;
+            flex-wrap: wrap;
+        }
+        
+        h1 {
+            color: #1DB954;
+            font-size: 2em;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .search-container {
+            flex: 1;
+            max-width: 600px;
+            min-width: 300px;
+        }
+        
+        .search-box {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 10px;
+        }
+        
+        input[type="text"] {
+            flex: 1;
+            padding: 12px 20px;
+            border: none;
+            border-radius: 25px;
+            background: #282828;
+            color: white;
+            font-size: 16px;
+        }
+        
+        input[type="text"]:focus {
+            outline: 2px solid #1DB954;
+        }
+        
+        select {
+            padding: 12px 20px;
+            border: none;
+            border-radius: 25px;
+            background: #282828;
+            color: white;
+            cursor: pointer;
+        }
+        
+        button {
+            padding: 12px 30px;
+            background: #1DB954;
+            color: white;
+            border: none;
+            border-radius: 25px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: transform 0.2s, background 0.3s;
+        }
+        
+        button:hover {
+            background: #1ed760;
+            transform: scale(1.05);
+        }
+        
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 30px 20px;
+        }
+        
+        .resultados-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+            gap: 20px;
+            margin-top: 20px;
+        }
+        
+        .resultado-card {
+            background: rgba(40, 40, 40, 0.8);
+            backdrop-filter: blur(10px);
+            border-radius: 15px;
+            padding: 15px;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        
+        .resultado-card:hover {
+            background: rgba(40, 40, 40, 1);
+            transform: translateY(-5px);
+            box-shadow: 0 10px 30px rgba(29, 185, 84, 0.3);
+        }
+        
+        .resultado-imagen {
+            width: 100%;
+            aspect-ratio: 1;
+            object-fit: cover;
+            border-radius: 10px;
+            background: #282828;
+            margin-bottom: 12px;
+        }
+        
+        .resultado-nombre {
+            font-weight: bold;
+            margin-bottom: 5px;
+            font-size: 16px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        
+        .resultado-info {
+            color: #b3b3b3;
+            font-size: 14px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        
+        .resultado-meta {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-top: 10px;
+            padding-top: 10px;
+            border-top: 1px solid #404040;
+            font-size: 13px;
+        }
+        
+        .play-button {
+            width: 40px;
+            height: 40px;
+            background: #1DB954;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: transform 0.2s;
+            margin-top: 10px;
+        }
+        
+        .play-button:hover {
+            transform: scale(1.1);
+        }
+        
+        .loading {
+            text-align: center;
+            padding: 60px 20px;
+            font-size: 18px;
+            color: #b3b3b3;
+        }
+        
+        .error {
+            background: rgba(255, 0, 0, 0.2);
+            border: 2px solid #ff0000;
+            padding: 20px;
+            border-radius: 15px;
+            text-align: center;
+            margin: 20px;
+        }
+        
+        .stats {
+            display: flex;
+            gap: 10px;
+            font-size: 12px;
+            color: #b3b3b3;
+            flex-wrap: wrap;
+        }
+        
+        .stat-badge {
+            background: rgba(29, 185, 84, 0.2);
+            padding: 4px 10px;
+            border-radius: 12px;
+        }
+        
+        /* Audio player personalizado */
+        audio {
+            width: 100%;
+            height: 40px;
+            margin-top: 10px;
+            border-radius: 20px;
+        }
+        
+        audio::-webkit-media-controls-panel {
+            background: #282828;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <div class="header-content">
+            <h1>
+                <span>🎵</span>
+                <span>Spotify Search</span>
+            </h1>
+            
+            <div class="search-container">
+                <div class="search-box">
+                    <input 
+                        type="text" 
+                        id="busqueda" 
+                        placeholder="Buscar canciones, artistas, álbumes..."
+                        onkeypress="if(event.key === 'Enter') buscar()"
+                    >
+                    <select id="tipo">
+                        <option value="track">🎵 Canciones</option>
+                        <option value="artist">👤 Artistas</option>
+                        <option value="album">💿 Álbumes</option>
+                        <option value="playlist">📋 Playlists</option>
+                    </select>
+                    <button onclick="buscar()">Buscar</button>
+                </div>
+            </div>
+        </div>
+    </header>
+    
+    <div class="container">
+        <div id="resultados"></div>
+    </div>
+    
+    <!-- Reproductor de audio actual -->
+    <div id="audioPlayer" style="position: fixed; bottom: 0; left: 0; right: 0; background: rgba(0,0,0,0.95); padding: 15px; display: none; backdrop-filter: blur(20px);">
+        <div style="max-width: 1400px; margin: 0 auto; display: flex; align-items: center; gap: 15px;">
+            <img id="playerImage" style="width: 60px; height: 60px; border-radius: 8px;">
+            <div style="flex: 1;">
+                <div id="playerTrack" style="font-weight: bold;"></div>
+                <div id="playerArtist" style="color: #b3b3b3; font-size: 14px;"></div>
+            </div>
+            <audio id="audio" controls style="flex: 1; max-width: 400px;"></audio>
+        </div>
+    </div>
+
+    <script>
+        let audioActual = null;
+        
+        async function buscar() {
+            const resultados = document.getElementById('resultados');
+            const busqueda = document.getElementById('busqueda').value.trim();
+            const tipo = document.getElementById('tipo').value;
+            
+            if (!busqueda) {
+                alert('Por favor ingresa un término de búsqueda');
+                return;
+            }
+            
+            resultados.innerHTML = '<div class="loading">🔍 Buscando en Spotify...</div>';
+            
+            try {
+                const url = `/api/spotify/buscar?q=${encodeURIComponent(busqueda)}&tipo=${tipo}`;
+                const response = await fetch(url);
+                const data = await response.json();
+                
+                if (data.error) {
+                    resultados.innerHTML = `<div class="error">❌ ${data.error}</div>`;
+                    return;
+                }
+                
+                if (data.length === 0) {
+                    resultados.innerHTML = '<div class="loading">No se encontraron resultados</div>';
+                    return;
+                }
+                
+                mostrarResultados(data, tipo);
+                
+            } catch (error) {
+                resultados.innerHTML = '<div class="error">❌ Error al buscar en Spotify</div>';
+                console.error('Error:', error);
+            }
+        }
+        
+        function mostrarResultados(datos, tipo) {
+            const resultados = document.getElementById('resultados');
+            
+            if (tipo === 'track') {
+                resultados.innerHTML = `
+                    <div class="resultados-grid">
+                        ${datos.map(track => `
+                            <div class="resultado-card">
+                                <img src="${track.imagen || '/static/img/no-music.png'}" class="resultado-imagen">
+                                <div class="resultado-nombre">${track.nombre}</div>
+                                <div class="resultado-info">${track.artista_principal}</div>
+                                <div class="resultado-info" style="font-size: 12px;">${track.album}</div>
+                                
+                                <div class="stats">
+                                    <span class="stat-badge">⏱️ ${track.duracion}</span>
+                                    <span class="stat-badge">🔥 ${track.popularidad}%</span>
+                                    ${track.explicito ? '<span class="stat-badge">🅴</span>' : ''}
+                                </div>
+                                
+                                ${track.preview_url ? `
+                                    <div class="play-button" onclick="reproducir('${track.preview_url}', '${track.nombre.replace(/'/g, "\\'")}', '${track.artista_principal.replace(/'/g, "\\'")}', '${track.imagen}')">
+                                        ▶️
+                                    </div>
+                                ` : ''}
+                                
+                                <div class="resultado-meta">
+                                    <a href="${track.spotify_url}" target="_blank" style="color: #1DB954; text-decoration: none;">
+                                        Abrir en Spotify
+                                    </a>
+                                </div>
+                            </div>
+                        `).join('')}
+                    </div>
+                `;
+            }
+            else if (tipo === 'artist') {
+                resultados.innerHTML = `
+                    <div class="resultados-grid">
+                        ${datos.map(artist => `
+                            <div class="resultado-card" onclick="verArtista('${artist.id}')">
+                                <img src="${artist.imagen || '/static/img/no-artist.png'}" class="resultado-imagen" style="border-radius: 50%;">
+                                <div class="resultado-nombre">${artist.nombre}</div>
+                                
+                                <div class="stats">
+                                    <span class="stat-badge">👥 ${artist.seguidores.toLocaleString()}</span>
+                                    <span class="stat-badge">🔥 ${artist.popularidad}%</span>
+                                </div>
+                                
+                                ${artist.generos.length > 0 ? `
+                                    <div class="resultado-info" style="margin-top: 10px;">
+                                        ${artist.generos.slice(0, 2).join(', ')}
+                                    </div>
+                                ` : ''}
+                                
+                                <div class="resultado-meta">
+                                    <a href="${artist.spotify_url}" target="_blank" style="color: #1DB954; text-decoration: none;" onclick="event.stopPropagation()">
+                                        Abrir en Spotify
+                                    </a>
+                                </div>
+                            </div>
+                        `).join('')}
+                    </div>
+                `;
+            }
+            else if (tipo === 'album') {
+                resultados.innerHTML = `
+                    <div class="resultados-grid">
+                        ${datos.map(album => `
+                            <div class="resultado-card" onclick="verAlbum('${album.id}')">
+                                <img src="${album.imagen || '/static/img/no-album.png'}" class="resultado-imagen">
+                                <div class="resultado-nombre">${album.nombre}</div>
+                                <div class="resultado-info">${album.artistas.join(', ')}</div>
+                                
+                                <div class="stats">
+                                    <span class="stat-badge">📅 ${album.fecha_lanzamiento}</span>
+                                    <span class="stat-badge">🎵 ${album.total_tracks} tracks</span>
+                                </div>
+                                
+                                <div class="resultado-meta">
+                                    <span style="color: #b3b3b3; text-transform: capitalize;">${album.tipo}</span>
+                                    <a href="${album.spotify_url}" target="_blank" style="color: #1DB954; text-decoration: none;" onclick="event.stopPropagation()">
+                                        Spotify
+                                    </a>
+                                </div>
+                            </div>
+                        `).join('')}
+                    </div>
+                `;
+            }
+            else if (tipo === 'playlist') {
+                resultados.innerHTML = `
+                    <div class="resultados-grid">
+                        ${datos.map(playlist => `
+                            <div class="resultado-card">
+                                <img src="${playlist.imagen || '/static/img/no-playlist.png'}" class="resultado-imagen">
+                                <div class="resultado-nombre">${playlist.nombre}</div>
+                                <div class="resultado-info">Por ${playlist.owner}</div>
+                                
+                                <div class="stats">
+                                    <span class="stat-badge">🎵 ${playlist.total_tracks} canciones</span>
+                                    ${playlist.publica ? '<span class="stat-badge">🌍 Pública</span>' : '<span class="stat-badge">🔒 Privada</span>'}
+                                </div>
+                                
+                                ${playlist.descripcion ? `
+                                    <div class="resultado-info" style="margin-top: 10px; font-size: 12px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;">
+                                        ${playlist.descripcion}
+                                    </div>
+                                ` : ''}
+                                
+                                <div class="resultado-meta">
+                                    <a href="${playlist.spotify_url}" target="_blank" style="color: #1DB954; text-decoration: none;">
+                                        Abrir en Spotify
+                                    </a>
+                                </div>
+                            </div>
+                        `).join('')}
+                    </div>
+                `;
+            }
+        }
+        
+        function reproducir(previewUrl, nombre, artista, imagen) {
+            const audio = document.getElementById('audio');
+            const player = document.getElementById('audioPlayer');
+            
+            // Actualizar información
+            document.getElementById('playerImage').src = imagen;
+            document.getElementById('playerTrack').textContent = nombre;
+            document.getElementById('playerArtist').textContent = artista;
+            
+            // Reproducir
+            audio.src = previewUrl;
+            audio.play();
+            player.style.display = 'block';
+        }
+        
+        async function verArtista(artistId) {
+            const resultados = document.getElementById('resultados');
+            resultados.innerHTML = '<div class="loading">Cargando información del artista...</div>';
+            
+            try {
+                const response = await fetch(`/api/spotify/artista/${artistId}`);
+                const artista = await response.json();
+                
+                if (artista.error) {
+                    resultados.innerHTML = `<div class="error">${artista.error}</div>`;
+                    return;
+                }
+                
+                resultados.innerHTML = `
+                    <div style="margin-bottom: 30px;">
+                        <button onclick="location.reload()" style="background: #282828;">← Volver</button>
+                    </div>
+                    
+                    <div style="display: flex; gap: 40px; margin-bottom: 40px; align-items: start;">
+                        <img src="${artista.imagen}" style="width: 250px; height: 250px; object-fit: cover; border-radius: 50%;">
+                        <div>
+                            <h2 style="font-size: 3em; margin-bottom: 10px;">${artista.nombre}</h2>
+                            <div style="display: flex; gap: 15px; margin-bottom: 20px;">
+                                <span class="stat-badge" style="font-size: 16px;">👥 ${artista.seguidores.toLocaleString()} seguidores</span>
+                                <span class="stat-badge" style="font-size: 16px;">🔥 ${artista.popularidad}% popularidad</span>
+                            </div>
+                            ${artista.generos.length > 0 ? `
+                                <div style="margin-top: 15px;">
+                                    ${artista.generos.map(g => `<span class="stat-badge">${g}</span>`).join(' ')}
+                                </div>
+                            ` : ''}
+                        </div>
+                    </div>
+                    
+                    <h3 style="margin-bottom: 20px; color: #1DB954;">🎵 Canciones Más Populares</h3>
+                    <div class="resultados-grid">
+                        ${artista.top_canciones.map((track, index) => `
+                            <div class="resultado-card">
+                                <div style="position: absolute; top: 10px; left: 10px; background: rgba(0,0,0,0.8); padding: 5px 10px; border-radius: 20px;">
+                                    #${index + 1}
+                                </div>
+                                <img src="${track.imagen}" class="resultado-imagen">
+                                <div class="resultado-nombre">${track.nombre}</div>
+                                <div class="resultado-info">${track.album}</div>
+                                <div class="stats">
+                                    <span class="stat-badge">⏱️ ${track.duracion}</span>
+                                </div>
+                                ${track.preview ? `
+                                    <div class="play-button" onclick="reproducir('${track.preview}', '${track.nombre.replace(/'/g, "\\'")}', '${artista.nombre}', '${track.imagen}')">
+                                        ▶️
+                                    </div>
+                                ` : ''}
+                            </div>
+                        `).join('')}
+                    </div>
+                    
+                    ${artista.albums.length > 0 ? `
+                        <h3 style="margin: 40px 0 20px; color: #1DB954;">💿 Álbumes</h3>
+                        <div class="resultados-grid">
+                            ${artista.albums.map(album => `
+                                <div class="resultado-card">
+                                    <img src="${album.imagen}" class="resultado-imagen">
+                                    <div class="resultado-nombre">${album.nombre}</div>
+                                    <div class="stats">
+                                        <span class="stat-badge">📅 ${album.fecha}</span>
+                                        <span class="stat-badge">🎵 ${album.total_tracks}</span>
+                                    </div>
+                                </div>
+                            `).join('')}
+                        </div>
+                    ` : ''}
+                `;
+                
+            } catch (error) {
+                resultados.innerHTML = '<div class="error">Error al cargar artista</div>';
+            }
+        }
+        
+        async function verAlbum(albumId) {
+            const resultados = document.getElementById('resultados');
+            resultados.innerHTML = '<div class="loading">Cargando álbum...</div>';
+            
+            try {
+                const response = await fetch(`/api/spotify/album/${albumId}`);
+                const album = await response.json();
+                
+                resultados.innerHTML = `
+                    <div style="margin-bottom: 30px;">
+                        <button onclick="location.reload()" style="background: #282828;">← Volver</button>
+                    </div>
+                    
+                    <div style="display: flex; gap: 40px; margin-bottom: 40px;">
+                        <img src="${album.imagen}" style="width: 250px; height: 250px; border-radius: 10px;">
+                        <div>
+                            <h2 style="font-size: 2.5em; margin-bottom: 10px;">${album.nombre}</h2>
+                            <p style="font-size: 18px; color: #b3b3b3; margin-bottom: 15px;">${album.artistas.join(', ')}</p>
+                            <div style="display: flex; gap: 15px;">
+                                <span class="stat-badge" style="font-size: 14px;">📅 ${album.fecha_lanzamiento}</span>
+                                <span class="stat-badge" style="font-size: 14px;">🎵 ${album.total_tracks} canciones</span>
+                                <span class="stat-badge" style="font-size: 14px;">🔥 ${album.popularidad}%</span>
+                            </div>
+                            ${album.sello ? `<p style="margin-top: 15px; color: #b3b3b3;">Sello: ${album.sello}</p>` : ''}
+                        </div>
+                    </div>
+                    
+                    <h3 style="margin-bottom: 20px; color: #1DB954;">Canciones</h3>
+                    <div style="background: rgba(40,40,40,0.5); border-radius: 15px; padding: 20px;">
+                        ${album.tracks.map((track, index) => `
+                            <div style="display: flex; align-items: center; gap: 15px; padding: 12px; border-radius: 8px; margin-bottom: 10px; background: ${index % 2 === 0 ? 'rgba(0,0,0,0.2)' : 'transparent'};">
+                                <span style="width: 30px; text-align: center; color: #b3b3b3;">${track.numero}</span>
+                                <div style="flex: 1;">
+                                    <div style="font-weight: bold;">${track.nombre}</div>
+                                </div>
+                                <span style="color: #b3b3b3;">${track.duracion}</span>
+                                ${track.preview ? `
+                                    <button onclick="reproducir('${track.preview}', '${track.nombre.replace(/'/g, "\\'")}', '${album.artistas[0]}', '${album.imagen}')" style="width: 40px; height: 40px; border-radius: 50%; padding: 0;">
+                                        ▶️
+                                    </button>
+                                ` : ''}
+                            </div>
+                        `).join('')}
+                    </div>
+                `;
+                
+            } catch (error) {
+                resultados.innerHTML = '<div class="error">Error al cargar álbum</div>';
+            }
+        }
+    </script>
+</body>
+</html>
+```
+
+---
+
+## ▶️ Paso 4: Ejecutar la Aplicación
+
+```bash
+# Activar entorno virtual
+source venv/bin/activate  # Linux/Mac
+venv\Scripts\activate     # Windows
+
+# Instalar dependencias
+pip install flask requests
+
+# Ejecutar
+python spotify_app.py
+```
+
+---
+
+## 🎯 Funcionalidades Implementadas
+
+✅ Búsqueda de canciones con preview de 30 segundos  
+✅ Búsqueda de artistas con información completa  
+✅ Búsqueda de álbumes con listado de tracks  
+✅ Búsqueda de playlists  
+✅ Información detallada de artistas  
+✅ Top canciones de cada artista  
+✅ Reproductor de audio integrado  
+✅ Enlaces directos a Spotify  
+✅ Interfaz estilo Spotify
+
+---
+
+## 🧪 Endpoints de la API
+
+| Endpoint | Método | Descripción |
+|----------|--------|-------------|
+| `/api/spotify/buscar?q=...&tipo=...` | GET | Buscar contenido |
+| `/api/spotify/artista/<id>` | GET | Info de artista |
+| `/api/spotify/album/<id>` | GET | Info de álbum |
+| `/api/spotify/recomendaciones` | GET | Recomendaciones |
+| `/api/spotify/generos` | GET | Lista de géneros |
+
+---
+
+## 🎵 Pruebas Sugeridas
+
+1. Buscar "Queen" (artista)
+2. Buscar "Bohemian Rhapsody" (canción)
+3. Buscar "Abbey Road" (álbum)
+4. Hacer clic en un artista para ver detalles
+5. Reproducir preview de canciones
+
+---
+
+## ⚠️ Notas Importantes
+
+- **Preview de audio**: Solo 30 segundos disponibles
+- **Sin autenticación de usuario**: Usa Client Credentials Flow
+- **Límites de API**: 
+  - Sin límite estricto con Client Credentials
+  - Recomendado no exceder 100 requests/minuto
+
+---
+
+## 🔧 Solución de Problemas
+
+### Error 401
+- Verificar Client ID y Client Secret
+- Asegurarse de que las credenciales estén correctas
+
+### No hay preview disponible
+- No todas las canciones tienen preview
+- Es normal, depende del acuerdo con Spotify
+
+### Token expirado
+- El token se renueva automáticamente
+- Válido por 1 hora
+
+---
+
+¡Listo! Ahora tienes un buscador completo de música con Spotify. 🎵
 
 ## ❓ Solución de Problemas Comunes
 
