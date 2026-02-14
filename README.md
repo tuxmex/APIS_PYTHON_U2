@@ -17,8 +17,8 @@ Esta guía contiene instrucciones paso a paso para completar todos los ejercicio
 7. [Ejercicio 3.2: Chat con Firebase](#-ejercicio-32-chat-con-firebase)
 8. [Ejercicio 4.1: Buscador de Libros](#-ejercicio-41-buscador-de-libros)
 9. [Ejercicio 4.2: Conversor de Divisas](#-ejercicio-42-conversor-de-divisas)
-10. [Ejercicio 5.1: Buscador de Películas](#-ejercicio-51-buscador-de-películas)
-11. [Ejercicio 5.2: Buscador de Música](#-ejercicio-52-buscador-de-música)
+10. [Ejercicio 5.1: Buscador de Películas con TMDB API](#-ejercicio-51-buscador-de-películas-con-tmdb-api)
+11. [Ejercicio 5.2: Buscador de Música con Spotify Web API](#-ejercicio-52-buscador-de-música-con-spotify-web-api)
 12. [Solución de Problemas](#-solución-de-problemas)
 
 ---
