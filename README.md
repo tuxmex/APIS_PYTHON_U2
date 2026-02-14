@@ -17,7 +17,7 @@ Esta guía contiene instrucciones paso a paso para completar todos los ejercicio
 7. [Ejercicio 3.2: Chat con Firebase](#-ejercicio-32-chat-con-firebase)
 8. [Ejercicio 4.1: Buscador de Libros](#-ejercicio-41-buscador-de-libros)
 9. [Ejercicio 4.2: Conversor de Divisas](#-ejercicio-42-conversor-de-divisas)
-10. [Ejercicio 5.1: Buscador de Películas](#-ejercicio-51-buscador-de-películas)
+10. [Ejercicio 5.1: Buscador de Películas](#-ejercicio-51-buscador-de-peliculas)
 11. [Ejercicio 5.2: Buscador de Música con Spotify Web API](#-ejercicio-52-buscador-de-música-con-spotify-web-api)
 12. [Solución de Problemas](#-solución-de-problemas)
 
@@ -4035,7 +4035,7 @@ python divisas_app.py
 ---
 # 🎬 Ejercicios de APIs de Streaming
 
-## Ejercicio 5.1: Buscador de Películas
+## Ejercicio 5.1: Buscador de Peliculas
 
 ### 🎯 Objetivo
 Crear una aplicación para buscar películas y series usando The Movie Database (TMDB) API.
